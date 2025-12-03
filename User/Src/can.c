@@ -21,7 +21,7 @@
 /* Private define ------------------------------------------------------------*/
 
 // ToDo: korrekte Prescaler-Einstellung
-#define   CAN1_CLOCK_PRESCALER    1000
+#define   CAN1_CLOCK_PRESCALER    12		//Prescaler
 
 /* Private variables ---------------------------------------------------------*/
 CAN_HandleTypeDef     canHandle;
@@ -82,6 +82,19 @@ void canSendTask(void) {
 	// ToDo declare the required variables
 	static unsigned int sendCnt = 0;
 
+	// struct from stm32f4xx_hal_can.h
+	CAN_TxHeaderTypeDef txHeader;
+
+	txHeader.StdId = 0x1AB;
+	txHeader.ExtId = 0x00;
+	txHeader.RTR = CAN_RTR_DATA;
+	txHeader.IDE = CAN_ID_STD;
+	txHeader.DLC = 2;
+	txData[0] = 0xC3;
+	txData[1] = var;
+
+	uint32_t = txMailbox;
+
 
 
 	// ToDo (2): get temperature value
@@ -89,11 +102,16 @@ void canSendTask(void) {
 
 
 	// ToDo prepare send data
+	if (HAL_CAN_GetTxMailboxesFreeLevel(&canHandle) != 3 ) {
+						// mail box not empty
+	}
 
 
 
 	// ToDo send CAN frame
-
+	if (HAL_CAN_AddTxMessage(&canHandle, &txHeader, txData, &txMailbox) != HAL_OK){
+						// send failed
+	}
 
 
 	// ToDo display send counter and send data
@@ -175,10 +193,13 @@ static void initCanPeripheral(void) {
 	canHandle.Init.Mode = CAN_MODE_NORMAL;
 	canHandle.Init.SyncJumpWidth = CAN_SJW_1TQ;
 
+
 	// CAN Baudrate
-	canHandle.Init.TimeSeg1 = CAN_BS1_15TQ;
-	canHandle.Init.TimeSeg2 = CAN_BS2_6TQ;
+	canHandle.Init.TimeSeg1 = CAN_BS1_11TQ;				//Einstellung auf 11
+	canHandle.Init.TimeSeg2 = CAN_BS2_4TQ;				// Einstellung 4	ingesamt 15 wegen dem minus ein Sync Seg
 	canHandle.Init.Prescaler = CAN1_CLOCK_PRESCALER;
+
+
 
 	if (HAL_CAN_Init(&canHandle) != HAL_OK)
 	{

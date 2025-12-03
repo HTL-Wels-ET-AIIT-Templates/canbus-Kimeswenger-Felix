@@ -78,8 +78,13 @@ int main(void)
 	LCD_SetColors(LCD_COLOR_MAGENTA, LCD_COLOR_BLACK); // TextColor, BackColor
 	LCD_DisplayStringAtLineMode(39, "copyright CAN Experts!", CENTER_MODE);
 
-	// ToDo: set up CAN peripherals
 
+	//Funktionsaufrufe
+	canSendTask();
+	canReceiveTask();
+
+	// ToDo: set up CAN peripherals
+	canInit();
 
 
 	/* Infinite loop */
@@ -93,6 +98,12 @@ int main(void)
 
 
 		// ToDo: check if data has been received
+
+
+
+		//Funktionsaufrufe
+		canReceiveTask();
+		canSendTask();
 
 
 		// display timer
