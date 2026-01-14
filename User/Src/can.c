@@ -74,8 +74,11 @@ void canSendTask(void) {
     }
 
     // ToDo (2): get temperature value
+
     temperature = tempSensorGetTemperature(); //
+
     // Temperatur skalieren (z.B. 25.5°C -> 255)
+
     tempScaled = (uint16_t)(temperature * 10);
 
     // ToDo prepare send data
