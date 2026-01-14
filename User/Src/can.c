@@ -1,280 +1,208 @@
 /**
- ******************************************************************************
- * @file           : can.c
- * @brief          : CAN handling functions
- ******************************************************************************
- * Functions for initializing CAN peripheral, sending and receiving CAN
- * messages.
- *
- ******************************************************************************
- */
-/* Includes ------------------------------------------------------------------*/
+******************************************************************************
+* @file           : can.c
+* @brief          : CAN handling functions
+******************************************************************************
+*/
 #include <stdio.h>
 #include <stdint.h>
-
 #include "main.h"
 #include "stm32f429i_discovery_lcd.h"
 #include "tempsensor.h"
 
-/* Private typedef -----------------------------------------------------------*/
-
-/* Private define ------------------------------------------------------------*/
-
 // ToDo: korrekte Prescaler-Einstellung
-#define   CAN1_CLOCK_PRESCALER    12		//Prescaler
+// 45 MHz / (22 * 16) = ~128 kBit/s
+#define   CAN1_CLOCK_PRESCALER    16  //
 
-/* Private variables ---------------------------------------------------------*/
 CAN_HandleTypeDef     canHandle;
 
-/* Private function prototypes -----------------------------------------------*/
 static void initGpio(void);
 static void initCanPeripheral(void);
 
-
-/**
- * Initialize hardware GPIO and CAN peripheral
- */
 void canInitHardware(void) {
-	initGpio();
-	initCanPeripheral();
+    initGpio();
+    initCanPeripheral();
 }
 
 /**
- * canInit function, set up hardware and display
- * @param none
- * @return none
- */
+* canInit function, set up hardware and display
+*/
 void canInit(void) {
-	canInitHardware();
+    canInitHardware();
 
-	LCD_SetFont(&Font12);
-	LCD_SetColors(LCD_COLOR_WHITE, LCD_COLOR_BLACK);
-	LCD_SetPrintPosition(3,1);
-	printf("CAN1: Send-Recv");
+    LCD_SetFont(&Font12);
+    LCD_SetColors(LCD_COLOR_WHITE, LCD_COLOR_BLACK);
+    LCD_SetPrintPosition(3,1);
+    printf("CAN1: Send-Recv (C-Impl)"); // Hinweis auf C-Version
 
-	LCD_SetColors(LCD_COLOR_GREEN, LCD_COLOR_BLACK);
-	LCD_SetPrintPosition(5,1);
-	printf("Send-Cnt:");
-	LCD_SetPrintPosition(5,15);
-	printf("%5d", 0);
-	LCD_SetPrintPosition(7,1);
-	printf("Recv-Cnt:");
-	LCD_SetPrintPosition(7,15);
-	printf("%5d", 0);
-	LCD_SetPrintPosition(9,1);
-	printf("Send-Data:");
-	LCD_SetPrintPosition(15,1);
-	printf("Recv-Data:");
+    LCD_SetColors(LCD_COLOR_GREEN, LCD_COLOR_BLACK);
+    LCD_SetPrintPosition(5,1);
+    printf("Send-Cnt:");
+    LCD_SetPrintPosition(5,15);
+    printf("%5d", 0);
+    LCD_SetPrintPosition(7,1);
+    printf("Recv-Cnt:");
+    LCD_SetPrintPosition(7,15);
+    printf("%5d", 0);
+    LCD_SetPrintPosition(9,1);
+    printf("Send-Data:");
+    LCD_SetPrintPosition(15,1);
+    printf("Recv-Data:");
 
-	LCD_SetPrintPosition(30,1);
-	printf("Bit-Timing-Register: 0x%lx", CAN1->BTR);
+    LCD_SetPrintPosition(30,1);
+    printf("Bit-Timing-Register: 0x%lx", CAN1->BTR);
 
-	// ToDo (2): set up DS18B20 (temperature sensor)
-
+    // ToDo (2): set up DS18B20 (temperature sensor)
+    tempSensorInit(); //
 }
 
 /**
- * sends a CAN frame, if mailbox is free
- * @param none
- * @return none
- */
+* sends a CAN frame, if mailbox is free
+*/
 void canSendTask(void) {
-	// ToDo declare the required variables
-	static unsigned int sendCnt = 0;
+    // ToDo declare the required variables
+    static uint8_t sendCnt = 0;
+    CAN_TxHeaderTypeDef txHeader;
+    uint8_t txData[8] = {0};
+    uint32_t txMailbox;
+    float temperature = 0.0f;
+    uint16_t tempScaled = 0;
 
-	// struct from stm32f4xx_hal_can.h
-	CAN_TxHeaderTypeDef txHeader;
+    // Prüfen, ob eine Mailbox frei ist (mindestens 1 von 3)
+    if (HAL_CAN_GetTxMailboxesFreeLevel(&canHandle) == 0) {
+        return; // Keine Mailbox frei, abbrechen
+    }
 
-	txHeader.StdId = 0x1AB;
-	txHeader.ExtId = 0x00;
-	txHeader.RTR = CAN_RTR_DATA;
-	txHeader.IDE = CAN_ID_STD;
-	txHeader.DLC = 2;
-	txData[0] = 0xC3;
-	txData[1] = var;
+    // ToDo (2): get temperature value
+    temperature = tempSensorGetTemperature(); //
+    // Temperatur skalieren (z.B. 25.5°C -> 255)
+    tempScaled = (uint16_t)(temperature * 10);
 
-	uint32_t = txMailbox;
+    // ToDo prepare send data
+    // Frame-Aufbau laut Aufgabenstellung:
+    // Byte 0: 0xAF
+    // Byte 1: Vorwärtszähler
+    // Byte 2+3: Temperatur (Stufe 2)
+    txData[0] = 0xAF;      //
+    txData[1] = sendCnt;   //
+    txData[2] = (uint8_t)(tempScaled & 0xFF);      // Low Byte
+    txData[3] = (uint8_t)((tempScaled >> 8) & 0xFF); // High Byte
 
+    // Header konfigurieren
+    txHeader.StdId = 0x0F5;         // Beispiel-ID
+    txHeader.ExtId = 0x00;
+    txHeader.RTR = CAN_RTR_DATA;
+    txHeader.IDE = CAN_ID_STD;
+    txHeader.DLC = 4;               // Länge: 4 Bytes
 
+    // ToDo send CAN frame
+    if (HAL_CAN_AddTxMessage(&canHandle, &txHeader, txData, &txMailbox) == HAL_OK)
+    {
+        sendCnt++; // Nur erhöhen, wenn erfolgreich in Mailbox gelegt
+    }
 
-	// ToDo (2): get temperature value
+    // ToDo display send counter and send data
+    LCD_SetColors(LCD_COLOR_GREEN, LCD_COLOR_BLACK);
+    // Zähler anzeigen
+    LCD_SetPrintPosition(5, 15);
+    printf("%5d", sendCnt);
 
+    // Temperatur Text anzeigen
+    LCD_SetPrintPosition(11, 1);
+    printf("T: %3.2f C", temperature);
 
-
-	// ToDo prepare send data
-	if (HAL_CAN_GetTxMailboxesFreeLevel(&canHandle) != 3 ) {
-						// mail box not empty
-	}
-
-
-
-	// ToDo send CAN frame
-	if (HAL_CAN_AddTxMessage(&canHandle, &txHeader, txData, &txMailbox) != HAL_OK){
-						// send failed
-	}
-
-
-	// ToDo display send counter and send data
-
-
-
+    // Datenbytes anzeigen (Hex)
+    LCD_SetPrintPosition(9, 13); // Zeile 9, hinter "Send-Data:"
+    printf("%02x %02x %02x %02x", txData[0], txData[1], txData[2], txData[3]);
 }
 
 /**
- * checks if a can frame has been received and shows content on display
- * @param none
- * @return none
- */
+* checks if a can frame has been received and shows content on display
+*/
 void canReceiveTask(void) {
-	static unsigned int recvCnt = 0;
+    static unsigned int recvCnt = 0;
+    CAN_RxHeaderTypeDef rxHeader;
+    uint8_t rxData[8] = {0};
 
+    // ToDo: check if CAN frame has been received
+    // Prüfen, ob Füllstand von FIFO0 ungleich 0 ist
+    if (HAL_CAN_GetRxFifoFillLevel(&canHandle, CAN_RX_FIFO0) != 0)
+    {
+        // ToDo: Get CAN frame from RX fifo
+        if (HAL_CAN_GetRxMessage(&canHandle, CAN_RX_FIFO0, &rxHeader, rxData) == HAL_OK)
+        {
+            // ToDo: Process received CAN Frame (extract data)
+            recvCnt++;
 
+            // ToDo display recv counter and recv data
+            LCD_SetColors(LCD_COLOR_GREEN, LCD_COLOR_BLACK);
+            // Empfangszähler aktualisieren
+            LCD_SetPrintPosition(7, 15);
+            printf("%5d", recvCnt);
 
-	// ToDo: check if CAN frame has been received
-
-
-
-
-	// ToDo: Get CAN frame from RX fifo
-
-
-
-	// ToDo: Process received CAN Frame (extract data)
-
-
-
-	// ToDo display recv counter and recv data
-
-
-
+            // Empfangene Daten anzeigen (ID + Bytes)
+            LCD_SetPrintPosition(15, 13); // Zeile 15, hinter "Recv-Data:"
+            // ID anzeigen
+            printf("ID:%03lx D:", rxHeader.StdId);
+            // Datenbytes anzeigen (soviele wie DLC angibt)
+            for(int i = 0; i < rxHeader.DLC && i < 8; i++) {
+                printf("%02x ", rxData[i]);
+            }
+        }
+    }
 }
 
-/**
- * Initialize GPIOs for CAN
- */
+// ... initGpio und initCanPeripheral bleiben gleich wie im vorherigen Code ...
 static void initGpio(void)
 {
-	// TX an PB9 -> Probleme beim Senden, LCD rauscht
-	// RX an PB8 -> Probleme beim Senden, LCD rauscht
-
-	GPIO_InitTypeDef  canPins;
-
-	__HAL_RCC_GPIOB_CLK_ENABLE();
-
-	canPins.Alternate = GPIO_AF9_CAN1;
-	canPins.Mode = GPIO_MODE_AF_OD;
-	canPins.Pin = GPIO_PIN_8 | GPIO_PIN_9;
-	canPins.Pull = GPIO_PULLUP;
-	canPins.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-	HAL_GPIO_Init(GPIOB, &canPins);
+    GPIO_InitTypeDef  canPins;
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    canPins.Alternate = GPIO_AF9_CAN1;
+    canPins.Mode = GPIO_MODE_AF_OD;
+    canPins.Pin = GPIO_PIN_8 | GPIO_PIN_9;
+    canPins.Pull = GPIO_PULLUP;
+    canPins.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    HAL_GPIO_Init(GPIOB, &canPins);
 }
 
-/**
- * Initialize CAN peripheral.
- * Note: CAN1_CLOCK_PRESCALER has to be set!
- * No Filters are applied.
- * IRQs are enabled
- */
 static void initCanPeripheral(void) {
+    CAN_FilterTypeDef canFilter;
+    __HAL_RCC_CAN1_CLK_ENABLE();
 
-	CAN_FilterTypeDef canFilter;
+    canHandle.Instance = CAN1;
+    canHandle.Init.TimeTriggeredMode = DISABLE;
+    canHandle.Init.AutoBusOff = DISABLE;
+    canHandle.Init.AutoWakeUp = DISABLE;
+    canHandle.Init.AutoRetransmission = ENABLE;
+    canHandle.Init.ReceiveFifoLocked = DISABLE;
+    canHandle.Init.TransmitFifoPriority = DISABLE;
+    canHandle.Init.Mode = CAN_MODE_LOOPBACK; // Loopback er redet mit sich selbst und normal ist er senet an andere teilnehmer
+    canHandle.Init.SyncJumpWidth = CAN_SJW_1TQ;
+    canHandle.Init.TimeSeg1 = CAN_BS1_15TQ;
+    canHandle.Init.TimeSeg2 = CAN_BS2_6TQ;
+    canHandle.Init.Prescaler = CAN1_CLOCK_PRESCALER;
 
-	// CAN Clock enable
-	__HAL_RCC_CAN1_CLK_ENABLE();
+    if (HAL_CAN_Init(&canHandle) != HAL_OK) { Error_Handler(); }
 
-	// init CAN
-	canHandle.Instance = CAN1;
-	canHandle.Init.TimeTriggeredMode = DISABLE;
-	canHandle.Init.AutoBusOff = DISABLE;
-	canHandle.Init.AutoWakeUp = DISABLE;
-	canHandle.Init.AutoRetransmission = ENABLE;
-	canHandle.Init.ReceiveFifoLocked = DISABLE;
-	canHandle.Init.TransmitFifoPriority = DISABLE;
-	canHandle.Init.Mode = CAN_MODE_NORMAL;
-	canHandle.Init.SyncJumpWidth = CAN_SJW_1TQ;
+    canFilter.FilterBank = 0;
+    canFilter.FilterMode = CAN_FILTERMODE_IDMASK;
+    canFilter.FilterScale = CAN_FILTERSCALE_32BIT;
+    canFilter.FilterIdHigh = 0x0000;
+    canFilter.FilterIdLow = 0x0000;
+    canFilter.FilterMaskIdHigh = 0x0000;
+    canFilter.FilterMaskIdLow = 0x0000;
+    canFilter.FilterFIFOAssignment = CAN_RX_FIFO0;
+    canFilter.FilterActivation = ENABLE;
+    canFilter.SlaveStartFilterBank = 14;
 
-
-	// CAN Baudrate
-	canHandle.Init.TimeSeg1 = CAN_BS1_11TQ;				//Einstellung auf 11
-	canHandle.Init.TimeSeg2 = CAN_BS2_4TQ;				// Einstellung 4	ingesamt 15 wegen dem minus ein Sync Seg
-	canHandle.Init.Prescaler = CAN1_CLOCK_PRESCALER;
-
-
-
-	if (HAL_CAN_Init(&canHandle) != HAL_OK)
-	{
-		/* Initialization Error */
-		Error_Handler();
-	}
-
-	// CAN Filter (keine CAN-Frames filtern)
-	// CAN_FilterMode_IdList:
-	// Vorgabe der ID in CAN_FilterIdHigh/ CAN_FilterIdLow
-	// z.B. CAN_FilterIdHigh = 0x0100 << 5
-	//
-	// CAN_FilterMode_IdMask:
-	// Vorgabe der Maske in CAN_FilterMaskIdHigh/ CAN_FilterMaskIdLow
-	// und zusaetzlich die in CAN_FilterIdHigh vorgegebene ID
-	// Filtergleichung:
-	// (ID & CAN_FilterMaskIdHigh/Low) == CAN_FilterIdListHigh/Low
-	// -> CAN-Pakete duerfen passieren
-	//
-	// Bedeutung der Maske:
-	// 0x000 ... alle Bit durchlassen
-	// 0x7ff ... alle Bit sperren
-	// 0x6ff ... alle Bit durchlassen, fuer die das 9.Bit gesetzt ist
-	canFilter.FilterBank = 0;
-	canFilter.FilterMode = CAN_FILTERMODE_IDMASK;
-	canFilter.FilterScale = CAN_FILTERSCALE_32BIT;
-	canFilter.FilterIdHigh = 0x0000;
-	canFilter.FilterIdLow = 0x0000;
-	canFilter.FilterMaskIdHigh = 0x0000;
-	canFilter.FilterMaskIdLow = 0x0000;
-	canFilter.FilterFIFOAssignment = CAN_RX_FIFO0;
-	canFilter.FilterActivation = ENABLE;
-	canFilter.SlaveStartFilterBank = 14;
-
-	if (HAL_CAN_ConfigFilter(&canHandle, &canFilter) != HAL_OK)
-	{
-		/* Filter configuration Error */
-		Error_Handler();
-	}
-	/*##-3- Start the CAN peripheral ###########################################*/
-	if (HAL_CAN_Start(&canHandle) != HAL_OK)
-	{
-		/* Start Error */
-		Error_Handler();
-	}
-
-	/*##-4- Activate CAN RX notification #######################################*/
-//	HAL_NVIC_EnableIRQ(CAN1_RX0_IRQn);
-//	if (HAL_CAN_ActivateNotification(&canHandle, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)
-//	{
-//		/* Notification Error */
-//		Error_Handler();
-//	}
-
+    if (HAL_CAN_ConfigFilter(&canHandle, &canFilter) != HAL_OK) { Error_Handler(); }
+    if (HAL_CAN_Start(&canHandle) != HAL_OK) { Error_Handler(); }
 }
 
-
-/**
- * CAN1-RX ISR
- */
-void CAN1_RX0_IRQHandler(void)
-{
-	HAL_CAN_IRQHandler(&canHandle);
+void CAN1_RX0_IRQHandler(void) {
+    HAL_CAN_IRQHandler(&canHandle);
 }
 
-/**
- * @brief  Rx Fifo 0 message pending callback
- * @param  hcan: pointer to a CAN_HandleTypeDef structure that contains
- *         the configuration information for the specified CAN.
- * @retval None
- */
-void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
-{
-	// Receive is done in main loop
-
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
+    // Receive is done in main loop via Polling
 }
-
-
